@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Photography Simulator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Create realistic depth of field using multiple depth layers */
+        #photo-fg {
+            /* Sharp subject mask - focused on the portrait */
+            mask: radial-gradient(
+                ellipse 30% 45% at 50% 40%, 
+                black 0%, 
+                black 70%, 
+                transparent 100%
+            );
+            -webkit-mask: radial-gradient(
+                ellipse 30% 45% at 50% 40%, 
+                black 0%, 
+                black 70%, 
+                transparent 100%
+            );
+            filter: contrast(1.15) saturate(1.1);
+            transition: mask 0.5s ease-out, -webkit-mask 0.5s ease-out, filter 0.5s ease-out;
+        }
+
+        #photo-near {
+            /* Near background elements - shoulders, hair edges */
+            mask: radial-gradient(
+                ellipse 45% 60% at 50% 40%, 
+                transparent 0%, 
+                transparent 65%, 
+                black 75%, 
+                black 90%, 
+                transparent 100%
+            );
+            -webkit-mask: radial-gradient(
+                ellipse 45% 60% at 50% 40%, 
+                transparent 0%, 
+                transparent 65%, 
+                black 75%, 
+                black 90%, 
+                transparent 100%
+            );
+        }
+
+        #photo-mid {
+            /* Mid-distance background - immediate surroundings */
+            mask: radial-gradient(
+                ellipse 70% 80% at 50% 50%, 
+                transparent 0%, 
+                transparent 85%, 
+                black 90%, 
+                black 95%, 
+                transparent 100%
+            );
+            -webkit-mask: radial-gradient(
+                ellipse 70% 80% at 50% 50%, 
+                transparent 0%, 
+                transparent 85%, 
+                black 90%, 
+                black 95%, 
+                transparent 100%
+            );
+        }
+
+        #photo-far {
+            /* Far background - everything else */
+            mask: none;
+            -webkit-mask: none;
+        }
+        
+        /* Additional depth layers for more realistic DOF */
+        .depth-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: inherit;
+            background-size: cover;
+            background-position: center;
+        }
+        
+        /* Bokeh overlay for realistic light circles */
+        .bokeh-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.5s ease-out;
+            background-image: 
+                radial-gradient(circle at 15% 25%, rgba(255,255,255,0.4) 0%, transparent 3%),
+                radial-gradient(circle at 85% 35%, rgba(255,220,150,0.3) 0%, transparent 2%),
+                radial-gradient(circle at 25% 75%, rgba(255,255,255,0.5) 0%, transparent 2.5%),
+                radial-gradient(circle at 75% 80%, rgba(255,200,120,0.4) 0%, transparent 3%),
+                radial-gradient(circle at 90% 20%, rgba(255,255,255,0.3) 0%, transparent 2%),
+                radial-gradient(circle at 10% 60%, rgba(255,180,100,0.35) 0%, transparent 2.5%),
+                radial-gradient(circle at 60% 15%, rgba(255,255,255,0.4) 0%, transparent 2%),
+                radial-gradient(circle at 40% 85%, rgba(255,220,150,0.3) 0%, transparent 3%);
+            background-size: 100% 100%;
+        }
+        /* Custom styles for the noise overlay */
+        .noise-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            background-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800"><filter id="noise"><feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3" stitchTiles="stitch"/></filter><rect width="100%" height="100%" filter="url(%23noise)"/></svg>');
+            background-size: 200px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        /* Custom slider track styles */
+        input[type="range"]::-webkit-slider-runnable-track {
+            background: #e5e7eb; /* gray-200 */
+        }
+        input[type="range"]::-moz-range-track {
+            background: #e5e7eb; /* gray-200 */
+        }
+        /* Exposure meter bar */
+        .exposure-bar-bg {
+            background: linear-gradient(to right, #ef4444, #f59e0b, #4ade80, #f59e0b, #ef4444);
+        }
+        /* Vignette effect for more realistic depth of field */
+        .vignette {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            background: radial-gradient(circle at center, transparent 40%, rgba(0,0,0,0.1) 100%);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 antialiased">
+
+    <div class="container mx-auto p-4 sm:p-6 lg:p-8 max-w-7xl">
+        
+        <!-- Header -->
+        <header class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-gray-900">The Exposure Triangle</h1>
+            <p class="text-lg text-gray-600 mt-2">An Interactive Guide to Aperture, Shutter Speed, and ISO</p>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-5 gap-8">
+
+            <!-- Viewfinder / Image Display -->
+            <div class="lg:col-span-3 bg-gray-900 rounded-2xl shadow-2xl p-4 flex flex-col items-center justify-center aspect-[4/3]">
+                <div id="viewfinder" class="relative w-full h-full rounded-lg overflow-hidden transition-all duration-300 ease-in-out">
+                    <!-- This container holds both image layers and is used for motion blur -->
+                    <div id="imageContainer" class="relative w-full h-full">
+                        <!-- Far Background: Most blurred layer for distant objects -->
+                        <img id="photo-far" 
+                             src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=2088&auto=format&fit=crop" 
+                             onerror="this.onerror=null;this.src='https://placehold.co/1200x900/333/fff?text=Image+Not+Found';"
+                             class="absolute top-0 left-0 w-full h-full object-cover transition-all duration-500 ease-out" 
+                             alt="Far background layer">
+                        
+                        <!-- Mid Background: Moderately blurred layer -->
+                        <img id="photo-mid" 
+                             src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=2088&auto=format&fit=crop" 
+                             onerror="this.onerror=null;this.src='https://placehold.co/1200x900/333/fff?text=Image+Not+Found';"
+                             class="absolute top-0 left-0 w-full h-full object-cover transition-all duration-500 ease-out" 
+                             alt="Mid background layer">
+                        
+                        <!-- Near Background: Slightly blurred background elements -->
+                        <img id="photo-near" 
+                             src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=2088&auto=format&fit=crop" 
+                             onerror="this.onerror=null;this.src='https://placehold.co/1200x900/333/fff?text=Image+Not+Found';"
+                             class="absolute top-0 left-0 w-full h-full object-cover transition-all duration-500 ease-out" 
+                             alt="Near background layer">
+                        
+                        <!-- Foreground Image (Subject): Sharp focal plane -->
+                        <img id="photo-fg" 
+                             src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=2088&auto=format&fit=crop" 
+                             onerror="this.onerror=null;this.src='https://placehold.co/1200x900/333/fff?text=Image+Not+Found';"
+                             class="absolute top-0 left-0 w-full h-full object-cover transition-all duration-500 ease-out" 
+                             alt="Subject: Portrait with city bokeh lights in the background.">
+                    </div>
+                    <!-- Bokeh overlay for realistic depth of field light circles -->
+                    <div id="bokehOverlay" class="bokeh-overlay"></div>
+                    <!-- Noise overlay for high ISO simulation -->
+                    <div id="noiseOverlay" class="noise-overlay"></div>
+                    <!-- Vignette overlay for enhanced depth of field effect -->
+                    <div id="vignetteOverlay" class="vignette"></div>
+                </div>
+            </div>
+
+            <!-- Controls Panel -->
+            <div class="lg:col-span-2 bg-white rounded-2xl shadow-xl p-6">
+                <h2 class="text-2xl font-bold mb-6 border-b pb-4">Camera Settings</h2>
+
+                <!-- Aperture Control -->
+                <div class="mb-6">
+                    <label for="aperture" class="flex justify-between items-center text-lg font-semibold text-gray-700">
+                        Aperture
+                        <span id="apertureValue" class="font-mono text-base bg-gray-200 text-gray-800 px-2 py-1 rounded">f/5.6</span>
+                    </label>
+                    <p class="text-sm text-gray-500 mb-2">Controls brightness and depth of field (background blur).</p>
+                    <input id="aperture" type="range" min="0" max="8" value="4" step="1" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                </div>
+
+                <!-- Shutter Speed Control -->
+                <div class="mb-6">
+                    <label for="shutterSpeed" class="flex justify-between items-center text-lg font-semibold text-gray-700">
+                        Shutter Speed
+                        <span id="shutterSpeedValue" class="font-mono text-base bg-gray-200 text-gray-800 px-2 py-1 rounded">1/125s</span>
+                    </label>
+                    <p class="text-sm text-gray-500 mb-2">Controls brightness and motion blur.</p>
+                    <input id="shutterSpeed" type="range" min="0" max="12" value="7" step="1" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                </div>
+
+                <!-- ISO Control -->
+                <div class="mb-6">
+                    <label for="iso" class="flex justify-between items-center text-lg font-semibold text-gray-700">
+                        ISO
+                        <span id="isoValue" class="font-mono text-base bg-gray-200 text-gray-800 px-2 py-1 rounded">400</span>
+                    </label>
+                    <p class="text-sm text-gray-500 mb-2">Controls sensor sensitivity, brightness, and digital noise.</p>
+                    <input id="iso" type="range" min="0" max="6" value="2" step="1" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                </div>
+
+                <!-- Exposure Meter -->
+                <div class="mt-8 pt-6 border-t">
+                    <h3 class="text-lg font-semibold text-gray-700 mb-3 text-center">Exposure Meter</h3>
+                    <div class="relative h-4 w-full bg-gray-200 rounded-full overflow-hidden exposure-bar-bg">
+                        <div id="exposureIndicator" class="absolute top-0 h-full w-1.5 bg-white shadow-md rounded-full transform -translate-x-1/2 transition-all duration-300 ease-in-out" style="left: 50%;"></div>
+                    </div>
+                    <div class="flex justify-between text-xs font-medium text-gray-500 px-1 mt-1">
+                        <span>-2</span>
+                        <span>-1</span>
+                        <span>0</span>
+                        <span>+1</span>
+                        <span>+2</span>
+                    </div>
+                    <p id="exposureText" class="text-center font-semibold mt-2 text-lg transition-colors duration-300">Correct Exposure</p>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Explanations Section -->
+        <div class="mt-10 bg-white rounded-2xl shadow-xl p-8">
+            <h2 class="text-3xl font-bold text-center mb-8">What does it all mean?</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8 text-center">
+                
+                <!-- Aperture Explanation -->
+                <div>
+                    <h3 class="text-2xl font-semibold text-blue-600 mb-3">Aperture (f-stop)</h3>
+                    <p class="text-gray-600 leading-relaxed">
+                        Aperture is the opening in the lens that light travels through. It's measured in f-stops (e.g., f/1.8, f/8).
+                        A <strong class="font-semibold">lower f-number</strong> (like f/1.4) means a larger opening, letting in more light and creating a shallow depth of field (blurry background).
+                        A <strong class="font-semibold">higher f-number</strong> (like f/22) means a smaller opening, letting in less light and keeping more of the scene in sharp focus.
+                    </p>
+                </div>
+
+                <!-- Shutter Speed Explanation -->
+                <div>
+                    <h3 class="text-2xl font-semibold text-green-600 mb-3">Shutter Speed</h3>
+                    <p class="text-gray-600 leading-relaxed">
+                        This is the length of time the camera's sensor is exposed to light. It's measured in seconds or fractions of a second (e.g., 1/1000s, 1s).
+                        A <strong class="font-semibold">fast shutter speed</strong> (like 1/2000s) freezes motion but requires more light.
+                        A <strong class="font-semibold">slow shutter speed</strong> (like 1/15s) lets in a lot of light but can create motion blur if the subject or camera moves.
+                    </p>
+                </div>
+
+                <!-- ISO Explanation -->
+                <div>
+                    <h3 class="text-2xl font-semibold text-red-600 mb-3">ISO</h3>
+                    <p class="text-gray-600 leading-relaxed">
+                        ISO measures the sensor's sensitivity to light. It's an artificial way to brighten a photo in-camera.
+                        A <strong class="font-semibold">low ISO</strong> (like 100 or 200) is less sensitive, resulting in a high-quality, clean image with fine detail.
+                        A <strong class="font-semibold">high ISO</strong> (like 3200 or 6400) is very sensitive, useful in dark situations, but it introduces digital "noise" or graininess, reducing image quality.
+                    </p>
+                </div>
+            </div>
+            <div class="mt-8 pt-6 border-t border-gray-200 text-center">
+                <h3 class="text-2xl font-semibold text-gray-800 mb-3">The Balancing Act</h3>
+                <p class="text-gray-600 max-w-3xl mx-auto leading-relaxed">
+                    These three elements work together to create a properly exposed photograph. If you change one setting, you must balance it by adjusting one or both of the others to maintain the same level of brightness. For example, if you use a faster shutter speed (less light), you might need to use a wider aperture or a higher ISO (more light) to compensate.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // DOM Elements
+        const apertureSlider = document.getElementById('aperture');
+        const shutterSpeedSlider = document.getElementById('shutterSpeed');
+        const isoSlider = document.getElementById('iso');
+        
+        const apertureValue = document.getElementById('apertureValue');
+        const shutterSpeedValue = document.getElementById('shutterSpeedValue');
+        const isoValue = document.getElementById('isoValue');
+
+        const imageContainer = document.getElementById('imageContainer');
+        const photoFar = document.getElementById('photo-far');
+        const photoMid = document.getElementById('photo-mid');
+        const photoNear = document.getElementById('photo-near');
+        const photoFg = document.getElementById('photo-fg');
+        const bokehOverlay = document.getElementById('bokehOverlay');
+        const noiseOverlay = document.getElementById('noiseOverlay');
+        const vignetteOverlay = document.getElementById('vignetteOverlay');
+        const exposureIndicator = document.getElementById('exposureIndicator');
+        const exposureText = document.getElementById('exposureText');
+
+        // Photography Setting Values
+        const fStops = [1.4, 2, 2.8, 4, 5.6, 8, 11, 16, 22];
+        const shutterSpeeds = [
+            '1/4000', '1/2000', '1/1000', '1/500', '1/250', '1/125', 
+            '1/60', '1/30', '1/15', '1/8', '1/4', '1/2', '1'
+        ];
+        // Convert shutter speed fractions to decimal values for calculation
+        const shutterSpeedValues = shutterSpeeds.map(s => {
+            if (s.includes('/')) {
+                const parts = s.split('/');
+                return parseInt(parts[0]) / parseInt(parts[1]);
+            }
+            return parseInt(s);
+        });
+        const isos = [100, 200, 400, 800, 1600, 3200, 6400];
+
+        // The "correct" exposure value (EV) we are aiming for. This is an arbitrary baseline.
+        const TARGET_EV = 10; 
+
+        /**
+         * Main function to update the photo simulation based on slider values.
+         */
+        function updatePhoto() {
+            // Get current values from sliders
+            const currentApertureIndex = parseInt(apertureSlider.value);
+            const currentShutterIndex = parseInt(shutterSpeedSlider.value);
+            const currentIsoIndex = parseInt(isoSlider.value);
+
+            const aperture = fStops[currentApertureIndex];
+            const shutter = shutterSpeedValues[currentShutterIndex];
+            const iso = isos[currentIsoIndex];
+
+            // Update UI labels
+            apertureValue.textContent = `f/${aperture}`;
+            shutterSpeedValue.textContent = `${shutterSpeeds[currentShutterIndex]}s`;
+            isoValue.textContent = iso;
+
+            // --- Calculate Exposure Value (EV) ---
+            const apertureEV = Math.log2(aperture * aperture);
+            const shutterEV = Math.log2(1 / shutter);
+            const isoEV = Math.log2(iso / 100);
+            
+            const totalEV = apertureEV + shutterEV - isoEV;
+            const exposureDifference = TARGET_EV - totalEV;
+
+            // --- Apply Visual Effects ---
+
+            // 1. Brightness based on exposure difference
+            const brightness = Math.max(0.3, Math.min(2.5, 1 + exposureDifference * 0.25));
+            
+            // 2. Enhanced Depth of Field (Blur) based on Aperture
+            // More realistic aperture simulation with multiple depth layers
+            const apertureNormalized = currentApertureIndex / 8; // 0-1 range
+            const maxBlur = 35; // Maximum blur in pixels
+            const minBlur = 0.2; // Minimum blur for sharp images
+            
+            // Calculate blur for different depth layers
+            const farBlur = minBlur + (maxBlur * Math.pow(1 - apertureNormalized, 2.2));
+            const midBlur = minBlur + (maxBlur * 0.7 * Math.pow(1 - apertureNormalized, 2.5));
+            const nearBlur = minBlur + (maxBlur * 0.4 * Math.pow(1 - apertureNormalized, 2.8));
+            const fgBlur = minBlur + (maxBlur * 0.05 * Math.pow(1 - apertureNormalized, 3.2));
+            
+            // Dynamic mask adjustment based on aperture for the subject
+            const subjectMaskSize = 25 + (apertureNormalized * 20); // Wider at higher f-stops
+            const subjectMaskHeight = 40 + (apertureNormalized * 25); // Taller at higher f-stops
+            const subjectMaskSharpness = 65 + (apertureNormalized * 25); // Softer at lower f-stops
+            
+            // Update the subject mask for depth of field
+            const subjectMask = `radial-gradient(
+                ellipse ${subjectMaskSize}% ${subjectMaskHeight}% at 50% 40%, 
+                black 0%, 
+                black ${subjectMaskSharpness}%, 
+                transparent 100%
+            )`;
+            photoFg.style.mask = subjectMask;
+            photoFg.style.webkitMask = subjectMask;
+            
+            // Update near background mask
+            const nearMaskSize = 40 + (apertureNormalized * 15);
+            const nearMaskHeight = 55 + (apertureNormalized * 20);
+            const nearMask = `radial-gradient(
+                ellipse ${nearMaskSize}% ${nearMaskHeight}% at 50% 40%, 
+                transparent 0%, 
+                transparent ${Math.max(60, subjectMaskSharpness - 5)}%, 
+                black ${Math.max(70, subjectMaskSharpness + 5)}%, 
+                black 90%, 
+                transparent 100%
+            )`;
+            photoNear.style.mask = nearMask;
+            photoNear.style.webkitMask = nearMask;
+            
+            // 3. Bokeh effect intensity based on aperture
+            // Wide apertures (low f-numbers) create more prominent bokeh
+            const bokehIntensity = Math.pow(1 - apertureNormalized, 1.8) * 0.8;
+
+            // 4. Motion Blur based on Shutter Speed (more realistic scaling)
+            const motionBlurAmount = Math.max(0, (currentShutterIndex - 6) * 0.6);
+
+            // 5. Noise based on ISO with better scaling
+            const noiseOpacity = Math.min(0.4, currentIsoIndex * 0.06);
+
+            // 6. Enhanced vignette effect for wide aperture
+            const vignetteOpacity = Math.min(0.3, bokehIntensity * 0.4);
+
+            // Apply the enhanced visual effects with gradient blur across depth layers
+            photoFar.style.filter = `brightness(${brightness}) blur(${farBlur}px) saturate(${1.3 - apertureNormalized * 0.3}) contrast(${0.9 + apertureNormalized * 0.1})`;
+            photoMid.style.filter = `brightness(${brightness}) blur(${midBlur}px) saturate(${1.25 - apertureNormalized * 0.2}) contrast(${0.95 + apertureNormalized * 0.05})`;
+            photoNear.style.filter = `brightness(${brightness}) blur(${nearBlur}px) saturate(${1.15 - apertureNormalized * 0.1}) contrast(${1.0 + apertureNormalized * 0.03})`;
+            photoFg.style.filter = `brightness(${brightness}) blur(${fgBlur}px) contrast(${1.15 + apertureNormalized * 0.05}) saturate(${1.1 + (1 - apertureNormalized) * 0.15})`;
+            imageContainer.style.filter = `blur(${motionBlurAmount}px)`;
+            
+            // Apply bokeh effect
+            bokehOverlay.style.opacity = bokehIntensity;
+            bokehOverlay.style.filter = `blur(${bokehIntensity * 0.3}px) brightness(${1.2 + bokehIntensity * 0.3})`;
+            
+            noiseOverlay.style.opacity = noiseOpacity;
+            vignetteOverlay.style.opacity = vignetteOpacity;
+
+            // --- Update Exposure Meter ---
+            updateExposureMeter(exposureDifference);
+        }
+
+        /**
+         * Updates the exposure meter UI based on the calculated exposure difference.
+         * @param {number} difference - The difference in stops from the target exposure.
+         */
+        function updateExposureMeter(difference) {
+            const clampedDifference = Math.max(-2, Math.min(2, difference));
+            const positionPercent = (clampedDifference + 2) * 25;
+            exposureIndicator.style.left = `${positionPercent}%`;
+
+            if (difference < -0.5) {
+                exposureText.textContent = 'Underexposed';
+                exposureText.className = 'text-center font-semibold mt-2 text-lg text-blue-600';
+            } else if (difference > 0.5) {
+                exposureText.textContent = 'Overexposed';
+                exposureText.className = 'text-center font-semibold mt-2 text-lg text-red-600';
+            } else {
+                exposureText.textContent = 'Correct Exposure';
+                exposureText.className = 'text-center font-semibold mt-2 text-lg text-green-600';
+            }
+        }
+
+        // Event Listeners for all sliders
+        apertureSlider.addEventListener('input', updatePhoto);
+        shutterSpeedSlider.addEventListener('input', updatePhoto);
+        isoSlider.addEventListener('input', updatePhoto);
+
+        // Initial call to set the default state when the page loads
+        window.addEventListener('load', updatePhoto);
+    </script>
+
+</body>
+</html>
